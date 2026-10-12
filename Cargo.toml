@@ -1,0 +1,19 @@
+[package]
+name = "storekit"
+version = "0.1.2"
+authors = ["Gamer Dad"]
+edition = "2024"
+rust-version = "1.97"
+description = "SQLite store mechanics for PITO apps: WAL pragmas, ordered migrations, sliced background writes, daily gzip backups and per-app folders"
+license = "MIT"
+repository = "https://github.com/gmrdad82/pito-storekit"
+publish = false
+
+[dependencies]
+dirs = "5"
+flate2 = "1"
+rusqlite = { version = "0.31", features = ["bundled", "trace"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
