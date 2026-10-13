@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The brand now reads PITO MD in the README, the trademarks note and the package description.
+
 ## v0.1.2 — 2026-10-12
 
 ### Added

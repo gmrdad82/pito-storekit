@@ -73,7 +73,7 @@ prints what it did. It writes to your real data folder (in a debug build,
   `synchronous = NORMAL`, foreign keys on, a 32 MiB page cache, 256 MiB of
   memory-mapped I/O and a one-second busy wait (`DESK_PEN_WAIT`), then runs
   the migrations. `mark` is an optional SQL profiler hook; `SLOW_SQL_ALARM`
-  (250 ms) is the threshold the PITO apps use with it.
+  (250 ms) is the threshold the PITO MD apps use with it.
 - **`storekit::open_companion(path, mark)`** opens a second connection for a
   background worker with the same pragmas and a 30-second busy wait
   (`JOB_PEN_WAIT`), and never migrates.
@@ -133,7 +133,7 @@ with no warnings. Report a security issue privately, as
 
 ## Licence
 
-The code is MIT licensed: see [LICENSE](LICENSE), by Catalin Ilinca. The PITO
+The code is MIT licensed: see [LICENSE](LICENSE), by Catalin Ilinca. The PITO MD
 name, every app and game name and their logos are © Catalin Ilinca, all
 rights reserved, and are not covered by the MIT licence: see
 [TRADEMARKS.md](TRADEMARKS.md). [NOTICE](NOTICE) says where the GIF comes from.
