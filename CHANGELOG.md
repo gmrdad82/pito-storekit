@@ -1,9 +1,15 @@
 # Changelog
 
-## Unreleased
+## v1.0.0 — 2026-10-14
+
+### Added
+
+- A `measure` example times opening a store, a long job written in one transaction against `write_sliced` while the app keeps writing, and a daily backup, on your own machine.
 
 ### Changed
 
+- pito-storekit is 1.0.0. The API is the same as 0.1.2, so moving to the `v1.0.0` tag needs no code change.
+- The README shows each feature with measured numbers and charts, and a first-use block for Linux, WSL and macOS.
 - The brand now reads PITO MD in the README, the trademarks note and the package description.
 
 ## v0.1.2 — 2026-10-12
