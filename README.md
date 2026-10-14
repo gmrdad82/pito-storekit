@@ -44,7 +44,7 @@ Rust 1.97 or newer and a C compiler, since SQLite is compiled into the crate.
 ```sh
 sudo apt install build-essential
 cargo new notes && cd notes
-cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.0
+cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.1
 ```
 
 **macOS:**
@@ -52,13 +52,13 @@ cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.0
 ```sh
 xcode-select --install
 cargo new notes && cd notes
-cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.0
+cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.1
 ```
 
 That writes this line to your `Cargo.toml`:
 
 ```toml
-storekit = { git = "https://github.com/gmrdad82/pito-storekit", tag = "v1.0.0" }
+storekit = { git = "https://github.com/gmrdad82/pito-storekit", tag = "v1.0.1" }
 ```
 
 Then put this in `src/main.rs` and `cargo run`:
@@ -224,6 +224,11 @@ request from a fork and nightly.
 The GIFs are prec shots of the examples (`render/terminal.toml` and
 `render/terminal/`), and the charts' data is in `render/charts/`; see
 [NOTICE](NOTICE).
+
+The guides are in `docs/pages/`. `bin/docs-bundle vX.Y.Z` packs them with the
+`cargo doc` API reference, the changelog and the images into
+`tmp/docs-vX.Y.Z.tar.gz`, and the release workflow attaches that file to each
+tag's GitHub Release.
 
 ## Contributing
 

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+version=${1:-v$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)}
+case $version in
+  v*) ;;
+  *) version=v$version ;;
+esac
+
+stage=tmp/docs-bundle
+bundle=tmp/docs-$version.tar.gz
+rm -rf "$stage" "$bundle"
+mkdir -p "$stage/docs/images" "$stage/docs/api"
+cp -R docs/pages/. "$stage/docs/"
+
+{
+  printf -- '---\ntitle: Changelog\ndescription: What changed in each pito-storekit release.\nsidebar:\n  order: 90\n---\n'
+  sed '1{/^# /d;}' CHANGELOG.md
+} > "$stage/docs/changelog.md"
+
+for image in $(grep -rhoE 'images/[A-Za-z0-9._-]+\.(png|gif|webp)' docs/pages | sed 's|^images/||' | sort -u); do
+  if [ ! -f "docs/images/$image" ]; then
+    echo "docs-bundle: a page uses images/$image, which is not in docs/images/" >&2
+    exit 1
+  fi
+  if ! grep -q "docs/images/$image" NOTICE; then
+    echo "docs-bundle: docs/images/$image is not named in NOTICE" >&2
+    exit 1
+  fi
+  cp "docs/images/$image" "$stage/docs/images/"
+done
+
+cargo doc --no-deps --locked --quiet
+cp -R target/doc/. "$stage/docs/api/"
+printf '<!doctype html>\n<meta charset="utf-8">\n<meta http-equiv="refresh" content="0; url=storekit/index.html">\n<title>storekit API</title>\n<a href="storekit/index.html">storekit API</a>\n' > "$stage/docs/api/index.html"
+
+if grep -rIlE '/home/|/Users/|file://' "$stage/docs"; then
+  echo "docs-bundle: the files above carry a local path" >&2
+  exit 1
+fi
+
+tar -C "$stage" -czf "$bundle" docs
+echo "$bundle"
