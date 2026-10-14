@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.0.1 — 2026-10-14
+
+### Added
+
+- Documentation pages: install and first use, a guide for each task (opening a store, migrations, long jobs, backups, folders, settings and fixtures, measuring), and a reference for the files and names storekit writes.
+- Each release carries `docs-vX.Y.Z.tar.gz`: those pages with the API reference, this changelog and their images.
+
 ## v1.0.0 — 2026-10-14
 
 ### Added
