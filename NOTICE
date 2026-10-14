@@ -4,10 +4,17 @@ Copyright (c) 2026 Cătălin Ilinca
 The code is under the MIT licence in LICENSE. These are the files in this
 repository that are not code, where each comes from, and what covers it.
 
-A terminal clip recorded by prec from this repository's own shot
-(render/terminal.toml and render/terminal/desk.tape, running
-examples/desk.rs), made a GIF by pconv, under the MIT licence like the code:
-- docs/images/desk.gif: the desk shot
+Terminal clips recorded by prec from this repository's own shots
+(render/terminal.toml and render/terminal/, running the examples in
+examples/), made GIFs by pconv, under the MIT licence like the code:
+- docs/images/measure.gif: the measure shot (examples/measure.rs)
+- docs/images/desk.gif: the desk shot (examples/desk.rs)
+
+Charts drawn by pito-compare from this repository's own data in
+render/charts/, measured with examples/measure.rs on 2026-10-14, under the
+MIT licence like the code:
+- docs/images/wait-paired.png: render/charts/wait.toml
+- docs/images/backup-bars.png: render/charts/backup.toml
 
 SQLite, which rusqlite's bundled build compiles into the crate, is in the
 public domain (https://sqlite.org/copyright.html).

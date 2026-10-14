@@ -1,0 +1,15 @@
+title = "DAILY BACKUP"
+unit = "MEBIBYTES"
+better = "lower"
+subtitle = "4M ROWS, RYZEN 9 9950X, NVME, STOREKIT 0.1.2"
+date = "2026-10-14"
+suffix = " MIB"
+notes = ["VACUUM INTO, GZIP, FSYNC AND RENAME TOOK 3.8 S."]
+parties = [{ name = "STOREKIT::BACKUP" }]
+
+[[groups]]
+name = "ON DISK"
+rows = [
+  { label = "THE STORE", values = [265.5] },
+  { label = "ITS GZIP BACKUP", values = [18.2] },
+]
