@@ -6,7 +6,8 @@ repository that are not code, where each comes from, and what covers it.
 
 Terminal clips recorded by prec from this repository's own shots
 (render/terminal.toml and render/terminal/, running the examples in
-examples/), made GIFs by pconv, under the MIT licence like the code:
+examples/), made GIFs by pcod (pito-codecs), under the MIT licence like the
+code:
 - docs/images/measure.gif: the measure shot (examples/measure.rs)
 - docs/images/desk.gif: the desk shot (examples/desk.rs)
 

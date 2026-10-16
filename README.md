@@ -211,7 +211,8 @@ and progress lines), [pito-fetch](https://github.com/gmrdad82/pito-fetch)
 (verified, resumable downloads) and
 [pito-renew](https://github.com/gmrdad82/pito-renew) (self-update). The GIFs
 here are recorded with [prec](https://github.com/gmrdad82/prec) and made GIFs
-with [pconv](https://github.com/gmrdad82/pconv); the charts are drawn by
+with pcod from [pito-codecs](https://github.com/gmrdad82/pito-codecs); the
+charts are drawn by
 [pito-compare](https://github.com/gmrdad82/pito-compare).
 
 ## Development
