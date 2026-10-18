@@ -2,7 +2,6 @@
 
 # pito-storekit
 
-[![CI](https://github.com/gmrdad82/pito-storekit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gmrdad82/pito-storekit/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/tag/gmrdad82/pito-storekit)](https://github.com/gmrdad82/pito-storekit/tags)
 
 The SQLite store underneath [PITO MD](https://pitomd.com) desktop apps, as a
@@ -219,8 +218,7 @@ charts are drawn by
 
 `bin/gate` runs `cargo fmt --check`, `cargo clippy --all-targets -- -D
 warnings` and `cargo test`. The tests keep their scratch files in the tree's
-`tmp/`. CI runs `bin/gate` on Linux and macOS on every push, every pull
-request from a fork and nightly.
+`tmp/`. A change merges when `bin/gate` passes on Linux and macOS.
 
 The GIFs are prec shots of the examples (`render/terminal.toml` and
 `render/terminal/`), and the charts' data is in `render/charts/`; see
@@ -228,8 +226,7 @@ The GIFs are prec shots of the examples (`render/terminal.toml` and
 
 The guides are in `docs/pages/`. `bin/docs-bundle vX.Y.Z` packs them with the
 `cargo doc` API reference, the changelog and the images into
-`tmp/docs-vX.Y.Z.tar.gz`, and the release workflow attaches that file to each
-tag's GitHub Release.
+`tmp/docs-vX.Y.Z.tar.gz`, which is attached to each tag's GitHub Release.
 
 ## Contributing
 
