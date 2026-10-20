@@ -16,6 +16,8 @@ of its own.
 
 Works on Linux and macOS (Windows through WSL).
 
+Got questions or doubts? Ping me on Discord: https://discord.gg/XsNcn3kYzn
+
 ## At a glance
 
 Measured once on 2026-10-14 with `cargo run --release --example measure`
