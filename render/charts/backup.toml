@@ -1,10 +1,10 @@
 title = "DAILY BACKUP"
 unit = "MEBIBYTES"
 better = "lower"
-subtitle = "4M ROWS, RYZEN 9 9950X, NVME, STOREKIT 0.1.2"
-date = "2026-10-14"
+subtitle = "4M ROWS, RYZEN 9 9950X, NVME, STOREKIT 1.0.1"
+date = "2026-10-23"
 suffix = " MIB"
-notes = ["VACUUM INTO, GZIP, FSYNC AND RENAME TOOK 3.8 S."]
+notes = ["VACUUM INTO, GZIP, FSYNC AND RENAME TOOK 3.6 S."]
 parties = [{ name = "STOREKIT::BACKUP" }]
 
 [[groups]]

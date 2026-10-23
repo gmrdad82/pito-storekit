@@ -39,46 +39,103 @@ pub struct Migrations {
 }
 
 pub fn run(connection: &Connection, migrations: &Migrations) -> rusqlite::Result<()> {
-    connection.execute_batch(SCHEMA_META_SQL)?;
     let current = stored_version(connection)?;
+    if current > 0 && current >= migrations.version && migrations.before.is_none() {
+        return Ok(());
+    }
 
     if current > 0
         && let Some(before) = migrations.before
     {
-        before(connection)?;
+        atomically(connection, MIGRATE_SAVEPOINT, || before(connection))?;
     }
 
+    let mut seen = current;
     for step in migrations.steps.iter().filter(|step| step.to > current) {
-        run_step(connection, step)?;
+        seen = run_step(connection, step, seen)?;
     }
 
-    if current != migrations.version {
+    atomically(connection, MIGRATE_SAVEPOINT, || {
+        raise_version(connection, migrations.version)
+    })
+}
+
+fn run_step(connection: &Connection, step: &Step, seen: i64) -> rusqlite::Result<i64> {
+    let switch = step.foreign_keys_off && connection.is_autocommit();
+    if switch {
+        connection.pragma_update(None, "foreign_keys", "OFF")?;
+    }
+    let ran = atomically(connection, MIGRATE_SAVEPOINT, || {
+        let stored = stored_version(connection)?;
+        if step.to <= stored && stored > seen {
+            return Ok(seen);
+        }
+        connection.execute_batch(step.sql)?;
+        if let Some(backfill) = step.backfill {
+            backfill(connection)?;
+        }
+        raise_version(connection, step.to)?;
+        Ok(stored.max(step.to))
+    });
+    let restored = if switch {
+        connection.pragma_update(None, "foreign_keys", "ON")
+    } else {
+        Ok(())
+    };
+    let seen = ran?;
+    restored?;
+    Ok(seen)
+}
+
+const MIGRATE_SAVEPOINT: &str = "storekit_migrate";
+
+pub(crate) fn atomically<T>(
+    connection: &Connection,
+    savepoint: &str,
+    work: impl FnOnce() -> rusqlite::Result<T>,
+) -> rusqlite::Result<T> {
+    let (start, finish, undo) = if connection.is_autocommit() {
+        (
+            "BEGIN IMMEDIATE".to_owned(),
+            "COMMIT".to_owned(),
+            "ROLLBACK".to_owned(),
+        )
+    } else {
+        (
+            format!("SAVEPOINT {savepoint}"),
+            format!("RELEASE {savepoint}"),
+            format!("ROLLBACK TO {savepoint}; RELEASE {savepoint}"),
+        )
+    };
+    connection.execute_batch(&start)?;
+    let done = work().and_then(|value| connection.execute_batch(&finish).map(|()| value));
+    if done.is_err() {
+        let _ = connection.execute_batch(&undo);
+    }
+    done
+}
+
+fn raise_version(connection: &Connection, to: i64) -> rusqlite::Result<()> {
+    connection.execute_batch(SCHEMA_META_SQL)?;
+    if to > stored_version(connection)? {
         connection.execute(
             "INSERT INTO schema_meta(key, value) VALUES ('version', ?1)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![migrations.version.to_string()],
+            params![to.to_string()],
         )?;
     }
     Ok(())
 }
 
-fn run_step(connection: &Connection, step: &Step) -> rusqlite::Result<()> {
-    if !step.foreign_keys_off {
-        connection.execute_batch(step.sql)?;
-    } else {
-        connection.pragma_update(None, "foreign_keys", "OFF")?;
-        let rebuilt = connection.execute_batch(step.sql);
-        let restored = connection.pragma_update(None, "foreign_keys", "ON");
-        rebuilt?;
-        restored?;
-    }
-    if let Some(backfill) = step.backfill {
-        backfill(connection)?;
-    }
-    Ok(())
-}
-
 fn stored_version(connection: &Connection) -> rusqlite::Result<i64> {
+    let has_meta: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_meta')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_meta {
+        return Ok(0);
+    }
     Ok(connection
         .query_row(
             "SELECT value FROM schema_meta WHERE key = 'version'",
@@ -103,7 +160,7 @@ mod tests {
         Step::new(8, "INSERT INTO order_log VALUES (8);", None),
         Step::new(2, "INSERT INTO order_log VALUES (2);", None),
     ];
-    static REBUILD_STEPS: &[Step] =
+    static DONE_REBUILD: &[Step] =
         &[Step::new(1, "CREATE TABLE rebuilt(id INTEGER);", None).with_foreign_keys_off()];
 
     #[test]
@@ -143,28 +200,49 @@ mod tests {
                     .get::<_, i64>(0))
                 .unwrap(),
             1,
-            "the target version is recorded only once after every listed step"
+            "a step below the stored version never rewrites it"
         );
     }
 
-    #[test]
-    fn a_rebuild_restores_foreign_keys() {
+    fn parent_and_child() -> Connection {
         let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE parent(id INTEGER PRIMARY KEY);
+                 CREATE TABLE child(id INTEGER PRIMARY KEY, parent INTEGER NOT NULL REFERENCES parent(id));
+                 INSERT INTO parent VALUES (1), (2);
+                 INSERT INTO child VALUES (10, 1), (20, 2);
+                 CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                 INSERT INTO schema_meta VALUES ('version', '1');",
+            )
+            .unwrap();
         connection
             .pragma_update(None, "foreign_keys", "ON")
             .unwrap();
+        connection
+    }
+
+    fn foreign_keys(connection: &Connection) -> bool {
+        connection
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_rebuild_already_applied_leaves_foreign_keys_as_the_caller_set_them() {
+        let connection = parent_and_child();
+        connection
+            .pragma_update(None, "foreign_keys", "OFF")
+            .unwrap();
         let migrations = Migrations {
             version: 1,
-            steps: REBUILD_STEPS,
+            steps: DONE_REBUILD,
             before: None,
         };
 
         run(&connection, &migrations).unwrap();
 
-        assert!(
-            connection
-                .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, bool>(0))
-                .unwrap()
-        );
+        assert!(!foreign_keys(&connection));
+        assert_eq!(stored_version(&connection).unwrap(), 1);
     }
 }

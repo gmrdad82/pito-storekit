@@ -5,7 +5,7 @@ sidebar:
   order: 12
 ---
 
-![Paired bars: the app's longest write wait is 241 ms with write_sliced against 1000 ms with one transaction, where two writes gave up; the 4M-row job takes 3281 ms sliced against 2782 ms in one transaction](../images/wait-paired.png)
+![Paired bars: the app's longest write wait is 236 ms with write_sliced against 1000 ms with one transaction, where two writes gave up; the 4M-row job takes 2778 ms sliced against 2636 ms in one transaction](../images/wait-paired.png)
 
 SQLite lets one writer in at a time. A background job that imports or
 rebuilds in one big transaction holds that lock for seconds, and every write
@@ -49,12 +49,13 @@ before it are in the store.
 
 ## What it measured
 
-With the app writing one row every 5 ms during a 4M-row job:
+With the app writing one row every 5 ms during a 4M-row job, on a busy
+machine (load average 46 to 48 on 32 threads):
 
 | | Job | App write p50 | Longest app wait | App writes refused |
 |---|---|---|---|---|
-| One transaction | 2.8 s | 0.17 ms | 1 s, the busy wait | 2 |
-| `write_sliced` | 3.3 s | 0.25 ms | 241 ms | 0 |
+| One transaction | 2.6 s | 0.10 ms | 1 s, the busy wait | 2 |
+| `write_sliced` | 2.8 s | 11 ms | 236 ms | 0 |
 
 One transaction finishes the job a little sooner, but two of the app's writes
 gave up; `write_sliced` refused none. [Measure it on your

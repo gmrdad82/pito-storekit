@@ -47,14 +47,16 @@ are the app's own text, except one storekit writes:
 | Name | What it is |
 |---|---|
 | `<stem>-YYYYMMDD-HHMM.db.gz` | a finished backup: a gzip of a SQLite file made by `VACUUM INTO`, stamped with the UTC minute it started |
-| `<stem>-YYYYMMDD-HHMM.db.gz.plain` | the uncompressed copy while a backup is being made |
-| `<stem>-YYYYMMDD-HHMM.db.gz.part` | the gzip while it is being written, before its rename |
+| `<stem>-YYYYMMDD-HHMM.db.gz.<pid>-<n>.plain` | the uncompressed copy while a backup is being made |
+| `<stem>-YYYYMMDD-HHMM.db.gz.<pid>-<n>.part` | the gzip while it is being written, before its rename |
 
 For example `notes-20261014-1901.db.gz`. `latest` and `due` read the stamp
 from names that start with `<stem>-` and end in `.db.gz` or `.db`, so a plain
-`<stem>-YYYYMMDD-HHMM.db` copy counts as a backup too. Finished backups older
-than 14 days (`KEEP_DAYS`) are deleted after each new one; any other file in
-the folder is left alone.
+`<stem>-YYYYMMDD-HHMM.db` copy counts as a backup too, and a name without a
+valid stamp never does. Finished backups older than 14 days (`KEEP_DAYS`)
+are deleted after each new one, with the stem's `.plain` and `.part` scratch
+files older than that (a killed run's leftovers, with or without the
+`.<pid>-<n>` tag); any other file in the folder is left alone.
 
 ## Folders
 
@@ -75,8 +77,8 @@ From [`paths::App`](../guides/app-folders.md) with `folder` and `env_prefix`
 
 | Variable | Effect |
 |---|---|
-| `<PREFIX>_DATA` | replaces `data_dir()` |
-| `<PREFIX>_DB` | replaces `db_path(..)` |
+| `<PREFIX>_DATA` | replaces `data_dir()`; empty or blank means unset |
+| `<PREFIX>_DB` | replaces `db_path(..)`; empty or blank means unset |
 | `<PREFIX>_FIXTURES` | names the fixture `fixtures::seed_if_requested` seeds; empty or blank means none |
 
 `<PREFIX>` is the `App`'s `env_prefix`.

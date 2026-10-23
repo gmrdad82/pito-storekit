@@ -41,4 +41,27 @@ mod tests {
         clear(&connection, "desk").unwrap();
         assert_eq!(get(&connection, "desk").unwrap(), None);
     }
+
+    #[test]
+    fn writes_to_a_store_without_the_table_fail_instead_of_vanishing() {
+        let connection = Connection::open_in_memory().unwrap();
+        assert!(set(&connection, "desk", "paper").is_err());
+        assert!(get(&connection, "desk").is_err());
+        assert!(clear(&connection, "desk").is_err());
+    }
+
+    #[test]
+    fn a_second_set_replaces_the_value_and_leaves_other_keys() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(SETTINGS_TABLE_SQL).unwrap();
+        set(&connection, "desk", "paper").unwrap();
+        set(&connection, "theme", "dark").unwrap();
+        set(&connection, "desk", "glass").unwrap();
+        assert_eq!(get(&connection, "desk").unwrap().as_deref(), Some("glass"));
+        assert_eq!(get(&connection, "theme").unwrap().as_deref(), Some("dark"));
+        let rows: i64 = connection
+            .query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 2);
+    }
 }

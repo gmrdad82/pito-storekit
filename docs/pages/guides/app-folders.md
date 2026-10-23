@@ -35,7 +35,9 @@ A debug build appends `-dev` to the folder (`APP.folder()` returns
 | `NOTES_DATA` | `data_dir()`, and so every path under it |
 | `NOTES_DB` | `db_path(..)`, the store's file |
 
-The prefix is `env_prefix`. For example, to run against a scratch copy:
+The prefix is `env_prefix`. An empty or blank value counts as unset, so an
+exported but empty variable never sends the store to a throwaway or relative
+path. For example, to run against a scratch copy:
 
 ```sh
 NOTES_DATA=/var/tmp/notes-scratch cargo run

@@ -12,7 +12,7 @@ code:
 - docs/images/desk.gif: the desk shot (examples/desk.rs)
 
 Charts drawn by pito-compare from this repository's own data in
-render/charts/, measured with examples/measure.rs on 2026-10-14, under the
+render/charts/, measured with examples/measure.rs on 2026-10-23, under the
 MIT licence like the code:
 - docs/images/wait-paired.png: render/charts/wait.toml
 - docs/images/backup-bars.png: render/charts/backup.toml

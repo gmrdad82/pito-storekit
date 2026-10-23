@@ -1,8 +1,8 @@
 title = "A LONG JOB AND THE APP'S WRITES"
 unit = "MILLISECONDS"
 better = "lower"
-subtitle = "4M ROWS, RYZEN 9 9950X, NVME, STOREKIT 0.1.2"
-date = "2026-10-14"
+subtitle = "4M ROWS, RYZEN 9 9950X, NVME, STOREKIT 1.0.1"
+date = "2026-10-23"
 suffix = " MS"
 notes = ["* ONE TRANSACTION: TWO APP WRITES GAVE UP AT THE 1 S BUSY WAIT."]
 parties = [{ name = "WRITE_SLICED" }, { name = "ONE TRANSACTION" }]
@@ -10,9 +10,9 @@ parties = [{ name = "WRITE_SLICED" }, { name = "ONE TRANSACTION" }]
 [[groups]]
 name = "THE APP, ONE WRITE EVERY 5 MS"
 rows = [
-  { label = "LONGEST WAIT", values = [241, 1000], mark = "*" },
+  { label = "LONGEST WAIT", values = [236, 1000], mark = "*" },
 ]
 
 [[groups]]
 name = "THE JOB"
-rows = [{ label = "4M ROWS WRITTEN", values = [3281, 2782] }]
+rows = [{ label = "4M ROWS WRITTEN", values = [2778, 2636] }]

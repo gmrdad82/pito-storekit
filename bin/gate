@@ -1,6 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
+  red=$'\e[1;31m' yellow=$'\e[33m' bold=$'\e[1m' under=$'\e[1;4m' plain=$'\e[0m'
+else
+  red='' yellow='' bold='' under='' plain=''
+fi
+refuse() {
+  printf "%serror:%s %s\n\n%sUsage:%s %sbin/gate%s [--fast]\n\nFor more information, try '%s--help%s'.\n" \
+    "$red" "$plain" "$1" "$under" "$plain" "$bold" "$plain" "$bold" "$plain" >&2
+  exit 2
+}
+fast=0
+for arg in "$@"; do
+  case $arg in
+  -h | --help)
+    printf "Run the gate: fmt check, clippy -D warnings and the tests\n\nUsage: bin/gate [--fast]\n\nOptions:\n      --fast  End with 'fast gate: green' when every step passes\n  -h, --help  Print help\n"
+    exit 0
+    ;;
+  --fast)
+    if [ "$fast" = 1 ]; then
+      refuse "the argument '$yellow--fast$plain' cannot be used multiple times"
+    fi
+    fast=1
+    ;;
+  *)
+    refuse "unexpected argument '$yellow$arg$plain' found"
+    ;;
+  esac
+done
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+if [ "$fast" = 1 ]; then
+  echo "fast gate: green"
+fi

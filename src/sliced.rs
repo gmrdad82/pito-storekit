@@ -209,4 +209,83 @@ mod tests {
         assert_eq!(applied, 1_000);
         assert!(waited <= generous_wall_clock_bound);
     }
+
+    static CONTENDED_RELEASE: Mutex<Option<std::sync::mpsc::Sender<()>>> = Mutex::new(None);
+
+    fn wait_past_contended_then_release(calls: i32) -> bool {
+        if calls == 0 {
+            std::thread::sleep(PEN_CONTENDED + Duration::from_millis(1));
+            if let Some(release) = CONTENDED_RELEASE.lock().unwrap().take() {
+                let _ = release.send(());
+            }
+        } else {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        calls < 10_000
+    }
+
+    #[test]
+    fn a_contended_pen_switches_the_next_slices_to_the_shared_budget() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tmp/testscratch");
+        std::fs::create_dir_all(&root).unwrap();
+        let holder_dir = tempfile::Builder::new()
+            .prefix("sliced-contended-")
+            .tempdir_in(root)
+            .unwrap();
+        let path = holder_dir.path().join("desk.db");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .unwrap();
+        connection
+            .execute_batch("CREATE TABLE values_seen(value INTEGER);")
+            .unwrap();
+        connection
+            .busy_handler(Some(wait_past_contended_then_release))
+            .unwrap();
+        let db = Arc::new(Mutex::new(connection));
+        let reader = Connection::open(&path).unwrap();
+        let pen = Connection::open(&path).unwrap();
+        pen.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        *CONTENDED_RELEASE.lock().unwrap() = Some(release_tx);
+        let holder = std::thread::spawn(move || {
+            release_rx.recv().unwrap();
+            pen.execute_batch("COMMIT").unwrap();
+        });
+        let mut seen = Vec::new();
+
+        let applied = write_sliced_with(
+            &db,
+            0..60_i64,
+            |transaction, value| {
+                let committed: i64 =
+                    reader.query_row("SELECT COUNT(*) FROM values_seen", [], |row| row.get(0))?;
+                seen.push((value, committed));
+                transaction.execute("INSERT INTO values_seen VALUES (?1)", [value])?;
+                Ok(())
+            },
+            Duration::from_secs(3_600),
+            Duration::ZERO,
+            Duration::ZERO,
+        )
+        .unwrap();
+        holder.join().unwrap();
+
+        assert_eq!(applied, 60);
+        for &(value, committed) in &seen[..SHARED_SLICES] {
+            assert_eq!(committed, value, "item {value} rode a shared slice of one");
+        }
+        assert!(
+            seen.last().unwrap().1 < 59,
+            "the quiet budget never came back"
+        );
+        assert_eq!(
+            reader
+                .query_row("SELECT COUNT(*) FROM values_seen", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            60
+        );
+    }
 }

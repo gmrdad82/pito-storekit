@@ -1,6 +1,7 @@
 use crate::Db;
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -53,17 +54,32 @@ pub fn keep(connection: &Connection, dir: &Path, stem: &str) -> Result<Kept, Str
     std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
     let stamp = format_stamp(now_unix());
     let final_name = format!("{stem}-{stamp}.db.gz");
-    let plain_path = dir.join(format!("{final_name}.plain"));
-    let part_path = dir.join(format!("{final_name}.part"));
+    let (plain_path, part_path) = scratch_paths(dir, &final_name);
     let final_path = dir.join(&final_name);
 
-    backup_into(connection, &plain_path).map_err(|error| error.to_string())?;
-    crate::archive::gzip_file(&plain_path, &part_path).map_err(|error| error.to_string())?;
-    let _ = std::fs::remove_file(&plain_path);
-    std::fs::rename(&part_path, &final_path).map_err(|error| error.to_string())?;
+    let made = backup_into(connection, &plain_path)
+        .map_err(|error| error.to_string())
+        .and_then(|()| {
+            crate::archive::gzip_file(&plain_path, &part_path).map_err(|error| error.to_string())
+        })
+        .and_then(|()| {
+            let _ = std::fs::remove_file(&plain_path);
+            std::fs::rename(&part_path, &final_path).map_err(|error| error.to_string())
+        });
+    if let Err(error) = made {
+        let _ = std::fs::remove_file(&plain_path);
+        let _ = std::fs::remove_file(&part_path);
+        return Err(error);
+    }
 
+    let now = now_unix();
     if let Ok(existing) = list_backup_names(dir, stem) {
-        for name in backups_to_delete(&existing, stem, now_unix()) {
+        for name in backups_to_delete(&existing, stem, now) {
+            let _ = std::fs::remove_file(dir.join(name));
+        }
+    }
+    if let Ok(leftovers) = list_scratch_names(dir, stem) {
+        for name in scratch_to_delete(&leftovers, stem, now) {
             let _ = std::fs::remove_file(dir.join(name));
         }
     }
@@ -76,11 +92,39 @@ pub fn keep(connection: &Connection, dir: &Path, stem: &str) -> Result<Kept, Str
     })
 }
 
+fn scratch_paths(dir: &Path, final_name: &str) -> (PathBuf, PathBuf) {
+    static RUNS: AtomicU64 = AtomicU64::new(0);
+    let tag = format!(
+        "{}-{}",
+        std::process::id(),
+        RUNS.fetch_add(1, Ordering::Relaxed)
+    );
+    (
+        dir.join(format!("{final_name}.{tag}.plain")),
+        dir.join(format!("{final_name}.{tag}.part")),
+    )
+}
+
 pub fn due(dir: &Path, stem: &str, now: i64) -> bool {
-    match latest(dir, stem) {
-        Some(at) => at.div_euclid(86_400) != now.div_euclid(86_400),
-        None => true,
+    !copy_days(dir, stem).contains(&now.div_euclid(86_400))
+}
+
+fn copy_days(dir: &Path, stem: &str) -> Vec<i64> {
+    list_backup_names(dir, stem)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|name| stamp_to_unix(name, stem))
+        .map(|at| at.div_euclid(86_400))
+        .collect()
+}
+
+fn next_open_day_unix(dir: &Path, stem: &str, after: i64) -> i64 {
+    let days = copy_days(dir, stem);
+    let mut day = after.div_euclid(86_400) + 1;
+    while days.contains(&day) {
+        day += 1;
     }
+    day * 86_400
 }
 
 pub fn next_due_unix(after: i64) -> i64 {
@@ -90,14 +134,15 @@ pub fn next_due_unix(after: i64) -> i64 {
 pub fn latest(dir: &Path, stem: &str) -> Option<i64> {
     list_backup_names(dir, stem)
         .ok()?
-        .last()
-        .and_then(|name| stamp_to_unix(name, stem))
+        .iter()
+        .filter_map(|name| stamp_to_unix(name, stem))
+        .max()
 }
 
 pub fn backup_into(connection: &Connection, destination: &Path) -> rusqlite::Result<()> {
     let destination = destination
         .to_str()
-        .expect("backup destination must be valid utf-8");
+        .ok_or_else(|| rusqlite::Error::InvalidPath(destination.to_path_buf()))?;
     connection.execute("VACUUM INTO ?1", [destination])?;
     Ok(())
 }
@@ -175,7 +220,7 @@ fn run_once(
         status.progress = 0.0;
         status.queue_depth = 0;
         status.last_run_unix = Some(ran_at);
-        status.next_run_unix = Some(next_due_unix(ran_at));
+        status.next_run_unix = Some(next_open_day_unix(&dir, stem, ran_at));
         status.last_elapsed = Some(started.elapsed());
         match outcome {
             Ok(kept) => {
@@ -187,7 +232,7 @@ fn run_once(
     } else {
         let mut status = status.lock().unwrap_or_else(|poison| poison.into_inner());
         status.unconfigured = false;
-        status.next_run_unix = Some(latest(&dir, stem).map(next_due_unix).unwrap_or(now));
+        status.next_run_unix = Some(next_open_day_unix(&dir, stem, now));
     }
 }
 
@@ -213,6 +258,43 @@ fn backups_to_delete(names: &[String], stem: &str, now: i64) -> Vec<String> {
         .collect()
 }
 
+fn list_scratch_names(dir: &Path, stem: &str) -> std::io::Result<Vec<String>> {
+    Ok(std::fs::read_dir(dir)?
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
+        .filter(|name| scratch_stamp(name, stem).is_some())
+        .collect())
+}
+
+fn scratch_to_delete(names: &[String], stem: &str, now: i64) -> Vec<String> {
+    let cutoff = now - KEEP_DAYS * 86_400;
+    names
+        .iter()
+        .filter(|name| scratch_stamp(name, stem).is_some_and(|at| at < cutoff))
+        .cloned()
+        .collect()
+}
+
+fn scratch_stamp(name: &str, stem: &str) -> Option<i64> {
+    let core = name
+        .strip_suffix(".plain")
+        .or_else(|| name.strip_suffix(".part"))?;
+    let finished = match core.rsplit_once('.') {
+        Some((head, tag)) if is_run_tag(tag) => head,
+        _ => core,
+    };
+    if !finished.ends_with(".db.gz") {
+        return None;
+    }
+    stamp_to_unix(finished, stem)
+}
+
+fn is_run_tag(tag: &str) -> bool {
+    let digits = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+    tag.split_once('-')
+        .is_some_and(|(pid, run)| digits(pid) && digits(run))
+}
+
 fn stamp_to_unix(name: &str, stem: &str) -> Option<i64> {
     let core = name.strip_prefix(&format!("{stem}-"))?;
     let core = core
@@ -220,7 +302,10 @@ fn stamp_to_unix(name: &str, stem: &str) -> Option<i64> {
         .unwrap_or(core)
         .strip_suffix(".db")?;
     let (date, time) = core.split_once('-')?;
-    if date.len() != 8 || time.len() != 4 {
+    let digits = |part: &str, len: usize| {
+        part.len() == len && part.bytes().all(|byte| byte.is_ascii_digit())
+    };
+    if !digits(date, 8) || !digits(time, 4) {
         return None;
     }
     let year = date[0..4].parse().ok()?;
@@ -228,7 +313,8 @@ fn stamp_to_unix(name: &str, stem: &str) -> Option<i64> {
     let day = date[6..8].parse().ok()?;
     let hour: i64 = time[0..2].parse().ok()?;
     let minute: i64 = time[2..4].parse().ok()?;
-    Some(days_from_civil(year, month, day) * 86_400 + hour * 3_600 + minute * 60)
+    let unix = days_from_civil(year, month, day) * 86_400 + hour * 3_600 + minute * 60;
+    (format_stamp(unix) == core).then_some(unix)
 }
 
 fn now_unix() -> i64 {
@@ -425,6 +511,54 @@ mod tests {
     }
 
     #[test]
+    fn a_stamp_outside_the_calendar_or_the_clock_reads_as_nothing() {
+        for name in [
+            "desk-20261300-0400.db.gz",
+            "desk-20260012-0400.db.gz",
+            "desk-20261000-0400.db.gz",
+            "desk-20261032-0400.db.gz",
+            "desk-20260230-0400.db.gz",
+            "desk-20260229-0400.db.gz",
+            "desk-20260812-2400.db.gz",
+            "desk-20260812-0460.db.gz",
+            "desk-20261399-9999.db",
+            "desk-2026+812-0400.db",
+            "desk-20260812-+400.db",
+            "desk-202\u{e9}081-0400.db",
+            "desk-20260812-0\u{e9}0.db",
+        ] {
+            assert_eq!(stamp_to_unix(name, "desk"), None, "{name}");
+        }
+        assert_eq!(
+            stamp_to_unix("desk-20280229-2359.db.gz", "desk"),
+            Some(1_835_481_540)
+        );
+        assert_eq!(
+            stamp_to_unix("desk-20261231-0000.db", "desk"),
+            Some(1_798_675_200)
+        );
+    }
+
+    #[test]
+    fn a_stranger_with_an_impossible_stamp_never_holds_the_next_backup_off() {
+        let holder = scratch("impossible-stamp");
+        let now = stamp_to_unix("desk-20260818-1200.db.gz", "desk").unwrap();
+        std::fs::write(holder.path().join("desk-20261399-9999.db"), b"x").unwrap();
+        std::fs::write(holder.path().join("desk-202\u{e9}081-0400.db"), b"x").unwrap();
+
+        assert_eq!(latest(holder.path(), "desk"), None);
+        assert!(due(holder.path(), "desk", now));
+        assert!(
+            backups_to_delete(
+                &list_backup_names(holder.path(), "desk").unwrap(),
+                "desk",
+                now + 30 * 86_400
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
     fn stamps_advance_with_the_clock() {
         let earlier = stamp_to_unix("desk-20260812-0400.db", "desk").unwrap();
         let later = stamp_to_unix("desk-20260812-0500.db", "desk").unwrap();
@@ -507,5 +641,250 @@ mod tests {
             latest(holder.path(), "desk"),
             stamp_to_unix("desk-20260812-2300.db.gz", "desk")
         );
+    }
+
+    #[test]
+    fn stamps_before_1970_read_the_right_calendar_day() {
+        assert_eq!(format_stamp(-60), "19691231-2359");
+        assert_eq!(format_stamp(-2_208_988_800), "19000101-0000");
+        assert_eq!(format_stamp(-310_500_000), "19600229-0600");
+        assert_eq!(
+            stamp_to_unix("desk-19600229-0600.db.gz", "desk"),
+            Some(-310_500_000)
+        );
+        assert_eq!(stamp_to_unix("desk-19691231-2359.db", "desk"), Some(-60));
+    }
+
+    #[test]
+    fn leap_days_land_on_the_twenty_ninth_and_centuries_skip_them() {
+        assert_eq!(format_stamp(951_782_400), "20000229-0000");
+        assert_eq!(format_stamp(1_709_210_040), "20240229-1234");
+        assert_eq!(format_stamp(4_107_456_000), "21000228-0000");
+        assert_eq!(format_stamp(4_107_456_000 + 86_400), "21000301-0000");
+        assert_eq!(
+            stamp_to_unix("desk-21000301-0000.db", "desk"),
+            Some(4_107_542_400)
+        );
+    }
+
+    #[test]
+    fn the_calendar_holds_before_the_first_era() {
+        assert_eq!(civil_from_days(-719_468), (0, 3, 1));
+        assert_eq!(civil_from_days(-719_469), (0, 2, 29));
+        assert_eq!(days_from_civil(0, 2, 29), -719_469);
+        assert_eq!(civil_from_days(-719_834), (-1, 3, 1));
+        assert_eq!(days_from_civil(-1, 3, 1), -719_834);
+    }
+
+    fn notes_store() -> Connection {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch("CREATE TABLE notes(body TEXT); INSERT INTO notes VALUES ('kept');")
+            .unwrap();
+        connection
+    }
+
+    fn scratch_files(dir: &Path) -> Vec<String> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".plain") || name.ends_with(".part"))
+            .collect()
+    }
+
+    #[test]
+    fn another_runs_scratch_files_in_the_same_minute_are_left_alone() {
+        let holder = scratch("leftover");
+        let now = now_unix();
+        let mut planted = Vec::new();
+        for at in [now, now + 60] {
+            let name = format!("desk-{}.db.gz", format_stamp(at));
+            for suffix in [".plain", ".part", ".1-0.plain", ".1-0.part"] {
+                let path = holder.path().join(format!("{name}{suffix}"));
+                std::fs::write(&path, b"in flight").unwrap();
+                planted.push(path);
+            }
+        }
+
+        let kept = keep(&notes_store(), holder.path(), "desk").unwrap();
+
+        for path in &planted {
+            assert_eq!(std::fs::read(path).unwrap(), b"in flight");
+        }
+        assert_eq!(scratch_files(holder.path()).len(), planted.len());
+        assert_eq!(std::fs::metadata(&kept.path).unwrap().len(), kept.bytes);
+        let mut header = [0u8; 2];
+        std::io::Read::read_exact(&mut std::fs::File::open(&kept.path).unwrap(), &mut header)
+            .unwrap();
+        assert_eq!(header, [0x1f, 0x8b]);
+    }
+
+    #[test]
+    fn every_run_gets_its_own_scratch_names_that_the_prune_recognises() {
+        let dir = Path::new("backups");
+        let (first_plain, first_part) = scratch_paths(dir, "desk-20260812-0400.db.gz");
+        let (second_plain, second_part) = scratch_paths(dir, "desk-20260812-0400.db.gz");
+
+        assert_ne!(first_plain, second_plain);
+        assert_ne!(first_part, second_part);
+        let at = stamp_to_unix("desk-20260812-0400.db.gz", "desk");
+        for path in [&first_plain, &first_part, &second_plain, &second_part] {
+            let name = path.file_name().unwrap().to_str().unwrap();
+            assert!(name.contains(&std::process::id().to_string()));
+            assert_eq!(scratch_stamp(name, "desk"), at);
+        }
+    }
+
+    #[test]
+    fn only_this_stems_scratch_names_carry_a_stamp() {
+        let at = stamp_to_unix("desk-20260812-0400.db.gz", "desk");
+        assert_eq!(scratch_stamp("desk-20260812-0400.db.gz.plain", "desk"), at);
+        assert_eq!(scratch_stamp("desk-20260812-0400.db.gz.part", "desk"), at);
+        assert_eq!(
+            scratch_stamp("desk-20260812-0400.db.gz.77-3.part", "desk"),
+            at
+        );
+        for stranger in [
+            "desk-20260812-0400.db.gz",
+            "desk-20260812-0400.db.gz.abc.plain",
+            "desk-20260812-0400.db.gz..plain",
+            "desk-20260812-0400.db.gz.-.plain",
+            "desk-20260812-0400.db.gz.---.part",
+            "desk-20260812-0400.db.gz.77.part",
+            "desk-20260812-0400.db.gz.77-3-1.part",
+            "desk-20260812-0400.db.plain",
+            "other-20260812-0400.db.gz.plain",
+            "desk-garbled.db.gz.part",
+        ] {
+            assert_eq!(scratch_stamp(stranger, "desk"), None, "{stranger}");
+        }
+    }
+
+    #[test]
+    fn keep_keeps_a_copy_and_a_leftover_inside_the_window_and_prunes_both_past_it() {
+        let holder = scratch("window");
+        let now = now_unix();
+        let recent = format!("desk-{}.db.gz", format_stamp(now - 13 * 86_400));
+        let old = format!("desk-{}.db.gz", format_stamp(now - 15 * 86_400));
+        for name in [
+            recent.clone(),
+            format!("{recent}.9-0.plain"),
+            format!("{recent}.part"),
+            old.clone(),
+            format!("{old}.9-0.plain"),
+            format!("{old}.part"),
+        ] {
+            std::fs::write(holder.path().join(name), b"x").unwrap();
+        }
+
+        keep(&notes_store(), holder.path(), "desk").unwrap();
+
+        assert!(holder.path().join(&recent).exists());
+        assert!(holder.path().join(format!("{recent}.9-0.plain")).exists());
+        assert!(holder.path().join(format!("{recent}.part")).exists());
+        assert!(!holder.path().join(&old).exists());
+        assert!(!holder.path().join(format!("{old}.9-0.plain")).exists());
+        assert!(!holder.path().join(format!("{old}.part")).exists());
+    }
+
+    #[test]
+    fn a_failed_keep_leaves_no_scratch_file_behind() {
+        let holder = scratch("rename-fails");
+        let now = now_unix();
+        let mut blockers = Vec::new();
+        for at in [now, now + 60] {
+            let blocker = holder
+                .path()
+                .join(format!("desk-{}.db.gz", format_stamp(at)));
+            std::fs::create_dir(&blocker).unwrap();
+            std::fs::write(blocker.join("inside"), b"x").unwrap();
+            blockers.push(blocker);
+        }
+
+        assert!(keep(&notes_store(), holder.path(), "desk").is_err());
+
+        assert!(scratch_files(holder.path()).is_empty());
+        for blocker in blockers {
+            assert_eq!(std::fs::read(blocker.join("inside")).unwrap(), b"x");
+        }
+    }
+
+    #[test]
+    fn run_once_records_the_error_when_the_folder_cannot_be_made() {
+        let holder = scratch("run-once-error");
+        let blocker = holder.path().join("a-file");
+        std::fs::write(&blocker, b"x").unwrap();
+        let db = db_with_backup_dir(Some(&blocker.join("backups")));
+        let status = Mutex::new(Status::default());
+
+        run_once(&db, &status, true, backup_dir, "desk");
+
+        let status = status.into_inner().unwrap();
+        assert!(status.last_error.is_some());
+        assert!(status.last_bytes.is_none());
+        assert!(!status.running);
+        assert!(status.last_run_unix.is_some());
+    }
+
+    #[test]
+    fn a_copy_stamped_on_a_later_day_never_holds_that_days_backup_off() {
+        let holder = scratch("due-future");
+        std::fs::write(holder.path().join("desk-20261015-0900.db.gz"), b"x").unwrap();
+        let noon = stamp_to_unix("desk-20261014-1200.db", "desk").unwrap();
+        assert!(due(holder.path(), "desk", noon));
+        std::fs::write(holder.path().join("desk-20261014-0100.db.gz"), b"x").unwrap();
+        assert!(!due(holder.path(), "desk", noon));
+        assert!(!due(holder.path(), "desk", noon + 86_400));
+        assert!(due(holder.path(), "desk", noon + 2 * 86_400));
+    }
+
+    #[test]
+    fn the_next_run_skips_days_that_already_hold_a_copy() {
+        let holder = scratch("next-open-day");
+        for name in ["desk-20261015-0900.db.gz", "desk-20261016-0100.db"] {
+            std::fs::write(holder.path().join(name), b"x").unwrap();
+        }
+        let noon = stamp_to_unix("desk-20261014-1200.db", "desk").unwrap();
+        assert_eq!(
+            next_open_day_unix(holder.path(), "desk", noon),
+            stamp_to_unix("desk-20261017-0000.db", "desk").unwrap()
+        );
+        assert_eq!(
+            next_open_day_unix(holder.path(), "desk", noon + 3 * 86_400),
+            stamp_to_unix("desk-20261018-0000.db", "desk").unwrap()
+        );
+    }
+
+    #[test]
+    fn a_copy_from_a_clock_that_ran_ahead_gets_one_backup_today_and_no_more() {
+        let holder = scratch("future-thread");
+        let today = now_unix().div_euclid(86_400);
+        let ahead = format!(
+            "desk-{}.db.gz",
+            format_stamp((today + 1) * 86_400 + 9 * 3_600)
+        );
+        std::fs::write(holder.path().join(&ahead), b"x").unwrap();
+        let db = db_with_backup_dir(Some(holder.path()));
+
+        let handle = spawn(Arc::clone(&db), backup_dir, "desk");
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let ran = loop {
+            let status = handle.status();
+            if status.last_run_unix.is_some() {
+                break status;
+            }
+            assert!(Instant::now() < deadline, "no copy was kept: {status:?}");
+            std::thread::sleep(Duration::from_millis(2));
+        };
+
+        assert_eq!(ran.last_error, None);
+        assert_eq!(ran.next_run_unix, Some((today + 2) * 86_400));
+        assert_eq!(list_backup_names(holder.path(), "desk").unwrap().len(), 2);
+        let again = Mutex::new(Status::default());
+        run_once(&db, &again, false, backup_dir, "desk");
+        let again = again.into_inner().unwrap();
+        assert_eq!(again.last_run_unix, None);
+        assert_eq!(again.next_run_unix, Some((today + 2) * 86_400));
+        assert_eq!(list_backup_names(holder.path(), "desk").unwrap().len(), 2);
     }
 }

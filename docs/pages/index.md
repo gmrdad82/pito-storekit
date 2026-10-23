@@ -21,21 +21,22 @@ Works on Linux and macOS (Windows through WSL).
 
 ## At a glance
 
-Measured once on 2026-10-14 with `cargo run --release --example measure`
-(storekit 0.1.2, Rust 1.97.1, AMD Ryzen 9 9950X, Samsung 990 PRO NVMe on
-btrfs, Linux). The GIF above is a separate run of the same example; the
-numbers move a little from run to run, and
+Measured once on 2026-10-23 with `cargo run --release --example measure`
+(storekit 1.0.1, Rust 1.97.1, AMD Ryzen 9 9950X, Samsung 990 PRO NVMe on
+btrfs, Linux). The machine was busy during the run, at a load average of 46
+to 48 on its 32 threads. The GIF above is a separate run of the same example;
+the numbers move a little from run to run, and
 [Measure it on your machine](guides/measure.md) shows how to run it yourself.
 
 | | |
 |---|---|
-| Longest wait for one app write while a 4M-row job runs | **241 ms** with `write_sliced`, none refused; with one transaction two writes gave up after the 1 s busy wait |
-| Reopen an already-migrated store | **0.13 ms** (median of 100) |
-| Create a new store and migrate it | 74 ms |
-| Daily backup of a 265.5 MiB store | **18.2 MiB**, 14.6× smaller, in 3.8 s |
-| Code | 608 lines of Rust, tests and blank lines left out |
+| Longest wait for one app write while a 4M-row job runs | **236 ms** with `write_sliced`, none refused; with one transaction two writes gave up after the 1 s busy wait |
+| Reopen an already-migrated store | **0.15 ms** (median of 100) |
+| Create a new store and migrate it | 45 ms |
+| Daily backup of a 265.5 MiB store | **18.2 MiB**, 14.6× smaller, in 3.6 s |
+| Code | 753 lines of Rust, tests and blank lines left out |
 | Dependencies | 4 direct (`rusqlite` with SQLite built in, `flate2`, `dirs`, `tracing`), 29 crates in the whole build |
-| Cold build | 70 s for `cargo build --release --examples`, SQLite's C source included |
+| Cold build | 37 s for `cargo build --release --examples`, SQLite's C source included |
 
 ## Where to go next
 

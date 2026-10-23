@@ -22,19 +22,16 @@ impl App {
     }
 
     pub fn data_dir(self) -> PathBuf {
-        std::env::var(self.env_key("DATA"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                dirs::data_dir()
-                    .unwrap_or_else(|| home_dir().join(".local").join("share"))
-                    .join(self.folder())
-            })
+        self.env_path("DATA").unwrap_or_else(|| {
+            dirs::data_dir()
+                .unwrap_or_else(|| home_dir().join(".local").join("share"))
+                .join(self.folder())
+        })
     }
 
     pub fn db_path(self, file: impl AsRef<Path>) -> PathBuf {
-        std::env::var(self.env_key("DB"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| self.data_dir().join(file))
+        self.env_path("DB")
+            .unwrap_or_else(|| self.data_dir().join(file))
     }
 
     pub fn token_path(self) -> PathBuf {
@@ -53,15 +50,30 @@ impl App {
         self.data_dir().join("traces")
     }
 
+    fn env_path(self, suffix: &str) -> Option<PathBuf> {
+        std::env::var_os(self.env_key(suffix))
+            .filter(|value| !value.to_string_lossy().trim().is_empty())
+            .map(PathBuf::from)
+    }
+
     pub(crate) fn env_key(self, suffix: &str) -> String {
         format!("{}_{suffix}", self.env_prefix)
     }
 }
 
 pub fn tilde(path: &str) -> String {
-    let home = home_dir().to_string_lossy().into_owned();
-    match path.strip_prefix(&home) {
-        Some(rest) if !home.is_empty() => format!("~{rest}"),
+    tilde_under(path, &home_dir().to_string_lossy())
+}
+
+fn tilde_under(path: &str, home: &str) -> String {
+    let home = match home.strip_suffix('/') {
+        Some(trimmed) if !trimmed.is_empty() => trimmed,
+        _ => home,
+    };
+    match path.strip_prefix(home) {
+        Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
+            format!("~{rest}")
+        }
         _ => path.to_owned(),
     }
 }
@@ -127,5 +139,50 @@ mod tests {
                     .join(TEST_APP.folder())
             );
         }
+    }
+
+    #[test]
+    fn tilde_shortens_the_home_folder_and_what_sits_inside_it() {
+        let home = home_dir().to_string_lossy().into_owned();
+        assert_eq!(tilde(&home), "~");
+        assert_eq!(tilde(&format!("{home}/notes/desk.db")), "~/notes/desk.db");
+    }
+
+    #[test]
+    fn tilde_leaves_a_path_that_only_shares_the_home_prefix() {
+        let home = home_dir().to_string_lossy().into_owned();
+        let sibling = format!("{home}y/desk.db");
+        assert_eq!(tilde(&sibling), sibling);
+        assert_eq!(tilde(&format!("{home}y")), format!("{home}y"));
+    }
+
+    #[test]
+    fn tilde_reads_a_home_with_a_trailing_slash_as_the_same_folder() {
+        assert_eq!(
+            tilde_under("/srv/user/notes/desk.db", "/srv/user/"),
+            "~/notes/desk.db"
+        );
+        assert_eq!(tilde_under("/srv/user", "/srv/user/"), "~");
+        assert_eq!(tilde_under("/srv/user/", "/srv/user/"), "~/");
+        assert_eq!(
+            tilde_under("/srv/usery/desk.db", "/srv/user/"),
+            "/srv/usery/desk.db"
+        );
+        assert_eq!(tilde_under("/srv/user/notes", "/srv/user"), "~/notes");
+    }
+
+    #[test]
+    fn tilde_never_shortens_under_a_root_or_empty_home() {
+        assert_eq!(tilde_under("/etc/desk.db", "/"), "/etc/desk.db");
+        assert_eq!(tilde_under("/etc/desk.db", ""), "/etc/desk.db");
+    }
+
+    #[test]
+    fn tilde_leaves_an_unrelated_path_alone() {
+        assert_eq!(
+            tilde("/storekit-nowhere/desk.db"),
+            "/storekit-nowhere/desk.db"
+        );
+        assert_eq!(tilde("relative/desk.db"), "relative/desk.db");
     }
 }

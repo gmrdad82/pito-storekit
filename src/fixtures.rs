@@ -39,8 +39,10 @@ fn seed_named(
         .iter()
         .find(|fixture| fixture.name() == name)
         .ok_or_else(|| rusqlite::Error::InvalidParameterName(name.clone()))?;
-    fixture.seed(connection)?;
-    settings::set(connection, SEEDED_KEY, &name)?;
+    crate::migrate::atomically(connection, "storekit_fixture", || {
+        fixture.seed(connection)?;
+        settings::set(connection, SEEDED_KEY, &name)
+    })?;
     Ok(Some(name))
 }
 

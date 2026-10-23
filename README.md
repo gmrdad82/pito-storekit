@@ -20,20 +20,21 @@ Got questions or doubts? Ping me on Discord: https://discord.gg/XsNcn3kYzn
 
 ## At a glance
 
-Measured once on 2026-10-14 with `cargo run --release --example measure`
-(storekit 0.1.2, Rust 1.97.1, AMD Ryzen 9 9950X, Samsung 990 PRO NVMe on
-btrfs, Linux). The GIF above is a separate run of the same example; the
-numbers move a little from run to run.
+Measured once on 2026-10-23 with `cargo run --release --example measure`
+(storekit 1.0.1, Rust 1.97.1, AMD Ryzen 9 9950X, Samsung 990 PRO NVMe on
+btrfs, Linux). The machine was busy during the run, at a load average of 46
+to 48 on its 32 threads. The GIF above is a separate run of the same example;
+the numbers move a little from run to run.
 
 | | |
 |---|---|
-| Longest wait for one app write while a 4M-row job runs | **241 ms** with `write_sliced`, none refused; with one transaction two writes gave up after the 1 s busy wait |
-| Reopen an already-migrated store | **0.13 ms** (median of 100) |
-| Create a new store and migrate it | 74 ms |
-| Daily backup of a 265.5 MiB store | **18.2 MiB**, 14.6× smaller, in 3.8 s |
-| Code | 608 lines of Rust, tests and blank lines left out |
+| Longest wait for one app write while a 4M-row job runs | **236 ms** with `write_sliced`, none refused; with one transaction two writes gave up after the 1 s busy wait |
+| Reopen an already-migrated store | **0.15 ms** (median of 100) |
+| Create a new store and migrate it | 45 ms |
+| Daily backup of a 265.5 MiB store | **18.2 MiB**, 14.6× smaller, in 3.6 s |
+| Code | 753 lines of Rust, tests and blank lines left out |
 | Dependencies | 4 direct (`rusqlite` with SQLite built in, `flate2`, `dirs`, `tracing`), 29 crates in the whole build |
-| Cold build | 70 s for `cargo build --release --examples`, SQLite's C source included |
+| Cold build | 37 s for `cargo build --release --examples`, SQLite's C source included |
 
 ## Install and first use
 
@@ -104,7 +105,7 @@ temporary folder and deletes it when it ends.
 
 ### Long jobs that never lock the app out
 
-<img src="docs/images/wait-paired.png" alt="Paired bars: the app's longest write wait is 241 ms with write_sliced against 1000 ms with one transaction, where two writes gave up; the 4M-row job takes 3281 ms sliced against 2782 ms in one transaction" width="720">
+<img src="docs/images/wait-paired.png" alt="Paired bars: the app's longest write wait is 236 ms with write_sliced against 1000 ms with one transaction, where two writes gave up; the 4M-row job takes 2778 ms sliced against 2636 ms in one transaction" width="720">
 
 SQLite lets one writer in at a time. A background job that imports or
 rebuilds in one big transaction holds that lock for seconds, and every write
@@ -124,16 +125,16 @@ storekit::sliced::write_sliced(&job, rows, |transaction, row| {
 
 In the run above, with the app writing one row every 5 ms during a 4M-row
 job, `write_sliced` refused none of the app's writes and the longest waited
-241 ms. One transaction finished the job sooner (2.8 s against 3.3 s), but
+236 ms. One transaction finished the job sooner (2.6 s against 2.8 s), but
 two of the app's writes gave up at the 1 s busy wait. The median app
-write took 0.25 ms against 0.17 ms.
+write took 11 ms against 0.10 ms.
 
 ### One way to open a store
 
 `storekit::open(path, migrations, mark)` opens a store in WAL mode with
 `synchronous = NORMAL`, foreign keys on, a 32 MiB page cache, 256 MiB of
 memory-mapped I/O and a one-second busy wait (`DESK_PEN_WAIT`), then runs the
-migrations. Reopening a migrated store took 0.13 ms. `mark` is an optional
+migrations. Reopening a migrated store took 0.15 ms. `mark` is an optional
 SQL profiler hook, and `SLOW_SQL_ALARM` (250 ms) is the threshold the PITO MD
 apps use with it. `storekit::open_companion(path, mark)` opens a second
 connection for a background worker with the same pragmas and a 30-second busy
@@ -141,11 +142,14 @@ wait (`JOB_PEN_WAIT`), and never migrates.
 
 ### Ordered migrations
 
-`storekit::migrate` runs `Step`s in the order listed, skips those at or below
-the stored version, and records the version in a `schema_meta` table once. A
-step can carry a Rust backfill, and `Step::with_foreign_keys_off()` runs a
-table rebuild with foreign keys off and turns them back on even when it
-fails. `Migrations::before` runs on an existing store before any step.
+`storekit::migrate` runs `Step`s in the order listed and skips those at or
+below the stored version. Each step, its Rust backfill and the version it
+records in a `schema_meta` table commit together or not at all, so a failed
+or interrupted step leaves the store at the last good step and the next open
+resumes there. `Step::with_foreign_keys_off()` marks a table rebuild: foreign
+keys go off around that step alone and back on even when it fails. A store
+whose version is above `Migrations::version`, opened by an older build, keeps
+its version. `Migrations::before` runs on an existing store before any step.
 
 ```rust
 const STEPS: &[Step] = &[
@@ -159,7 +163,7 @@ const STEPS: &[Step] = &[
 
 ### A gzip backup a day, kept for 14 days
 
-<img src="docs/images/backup-bars.png" alt="Bars: the 265.5 MiB store and its 18.2 MiB gzip backup; VACUUM INTO, gzip, fsync and rename took 3.8 s" width="720">
+<img src="docs/images/backup-bars.png" alt="Bars: the 265.5 MiB store and its 18.2 MiB gzip backup; VACUUM INTO, gzip, fsync and rename took 3.6 s" width="720">
 
 `storekit::backup` keeps one copy a day (by UTC day) as
 `<stem>-YYYYMMDD-HHMM.db.gz`: `VACUUM INTO` a plain copy, gzip it, fsync it,
@@ -186,10 +190,10 @@ kept. It writes to your real data folder, which you can delete after.
 
 A debug build appends `-dev` to the folder, so it never touches a release
 build's data. `<PREFIX>_DATA` and `<PREFIX>_DB` override the data folder and
-the store's path. `token_path`, `mcp_token_path`, `crash_spool_dir` and
-`traces_dir` name the usual files beside them, `set_owner_only_permissions`
-makes a file `0600`, and `tilde` shortens a path under the home folder for
-display.
+the store's path; an empty or blank value counts as unset. `token_path`,
+`mcp_token_path`, `crash_spool_dir` and `traces_dir` name the usual files
+beside them, `set_owner_only_permissions` makes a file `0600`, and `tilde`
+shortens a path under the home folder for display.
 
 ### Settings, fixtures and a sandbox guard
 

@@ -59,7 +59,11 @@ let seeded = storekit::fixtures::seed_if_requested(&connection, &APP, &[&Demo])?
 
 It does nothing unless `<PREFIX>_FIXTURES` (here `NOTES_FIXTURES`) names a
 fixture. Then it seeds that fixture once and records its name under the
-`fixture_seeded` setting, so the next start doesn't seed it again. It returns
+`fixture_seeded` setting, so the next start doesn't seed it again. The seed
+and that record run in one transaction that holds the write lock from its
+start (a savepoint, inside a transaction of yours): if either fails, none of
+the fixture's rows stay, and the next start seeds it from scratch. So `seed` must not open
+or end a transaction of its own (a `SAVEPOINT` is fine). It returns
 the name, or `None`. A name no fixture answers to is an error.
 
 The `desk` example has a `demo` fixture:

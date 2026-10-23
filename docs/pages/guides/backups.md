@@ -5,11 +5,11 @@ sidebar:
   order: 13
 ---
 
-![Bars: the 265.5 MiB store and its 18.2 MiB gzip backup; VACUUM INTO, gzip, fsync and rename took 3.8 s](../images/backup-bars.png)
+![Bars: the 265.5 MiB store and its 18.2 MiB gzip backup; VACUUM INTO, gzip, fsync and rename took 3.6 s](../images/backup-bars.png)
 
 `storekit::backup` keeps one compressed copy of the store a day and deletes
 copies older than 14 days (`KEEP_DAYS`). In the measured run a 265.5 MiB store
-became an 18.2 MiB backup, 14.6× smaller, in 3.8 s.
+became an 18.2 MiB backup, 14.6× smaller, in 3.6 s.
 
 ## Keep one now
 
@@ -23,17 +23,23 @@ if storekit::backup::due(&backups, APP.folder, now()) {
 
 `keep(connection, dir, stem)` creates `dir` if needed, then:
 
-1. `VACUUM INTO` a plain copy, `<name>.plain`;
-2. gzips it into `<name>.part` and fsyncs it;
+1. `VACUUM INTO` a plain copy, `<name>.<run>.plain`, where `<run>` is the
+   process id and a counter, so two runs never share a scratch file;
+2. gzips it into `<name>.<run>.part` and fsyncs it;
 3. renames it to `<stem>-YYYYMMDD-HHMM.db.gz` (UTC);
-4. deletes this stem's copies older than 14 days.
+4. deletes this stem's copies older than 14 days, and its scratch files
+   older than 14 days that a killed run left behind.
 
-A half-made backup never takes a finished name, and files it didn't name are
+A half-made backup never takes a finished name, and a failed `keep` removes
+its own scratch files. Scratch files never count as a copy for `latest` or
+`due`, nor does a name of the stem without a stamp, such as
+`notes-before-upgrade.db`, and files of another stem or another shape are
 left alone. `keep` returns a `Kept` with the path and its size in bytes, or
 the error as a string.
 
-`due(dir, stem, now)` is true when the newest copy is from an earlier UTC day
-than `now` (Unix seconds), or there is none. `latest(dir, stem)` returns the
+`due(dir, stem, now)` is true when no copy is stamped on the UTC day of `now`
+(Unix seconds), so a copy stamped on a later day, by a clock that ran ahead,
+doesn't hold today's off. `latest(dir, stem)` returns the
 newest copy's time in Unix seconds, read from its name. The
 [formats page](../reference/formats.md#backup-files) spells out the name.
 

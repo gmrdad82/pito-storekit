@@ -31,7 +31,7 @@ first, as the [quick start](../install.md) does with
 `std::fs::create_dir_all(APP.data_dir())`.
 
 In the measured run, reopening a store that was already migrated took
-0.13 ms (median of 100), and creating and migrating a new one 74 ms.
+0.15 ms (median of 100), and creating and migrating a new one 45 ms.
 
 ## A connection for a background worker
 
