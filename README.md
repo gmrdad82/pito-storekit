@@ -46,7 +46,7 @@ Rust 1.97 or newer and a C compiler, since SQLite is compiled into the crate.
 ```sh
 sudo apt install build-essential
 cargo new notes && cd notes
-cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.1
+cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.2
 ```
 
 **macOS:**
@@ -54,13 +54,13 @@ cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.1
 ```sh
 xcode-select --install
 cargo new notes && cd notes
-cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.1
+cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.2
 ```
 
 That writes this line to your `Cargo.toml`:
 
 ```toml
-storekit = { git = "https://github.com/gmrdad82/pito-storekit", tag = "v1.0.1" }
+storekit = { git = "https://github.com/gmrdad82/pito-storekit", tag = "v1.0.2" }
 ```
 
 Then put this in `src/main.rs` and `cargo run`:

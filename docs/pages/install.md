@@ -16,7 +16,7 @@ On Debian or Ubuntu (any distribution's C toolchain works):
 ```sh
 sudo apt install build-essential
 cargo new notes && cd notes
-cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.1
+cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.2
 ```
 
 ## macOS
@@ -24,7 +24,7 @@ cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.1
 ```sh
 xcode-select --install
 cargo new notes && cd notes
-cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.1
+cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.2
 ```
 
 ## What it adds
@@ -32,7 +32,7 @@ cargo add storekit --git https://github.com/gmrdad82/pito-storekit --tag v1.0.1
 `cargo add` writes this line to your `Cargo.toml`:
 
 ```toml
-storekit = { git = "https://github.com/gmrdad82/pito-storekit", tag = "v1.0.1" }
+storekit = { git = "https://github.com/gmrdad82/pito-storekit", tag = "v1.0.2" }
 ```
 
 Any release tag in the [changelog](changelog.md) works in its place.
