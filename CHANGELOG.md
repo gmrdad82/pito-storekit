@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.0.2 — 2026-10-23
+
+### Changed
+
+- Each migration step now commits on its own with its backfill and its version: a step that fails, or a process killed mid-step, leaves the store at the last good step, and the next open carries on from there.
+- Two processes opening the same store at once run each pending migration step once.
+- A blank `<PREFIX>_DB` or `<PREFIX>_DATA` counts as unset, and a path that isn't UTF-8 is honoured.
+- The README and docs quote a new run of the `measure` example.
+
+### Fixed
+
+- An older build opening a newer store no longer lowers its schema version.
+- A backup into a folder whose name isn't UTF-8 returns an error instead of crashing the app.
+- A stray file such as `notes-before-upgrade.db`, or a copy stamped in the future, no longer makes a backup run every minute.
+- A backup killed halfway no longer blocks the next one, and its leftover files are cleaned up after 14 days.
+- A fixture that fails halfway leaves nothing behind.
+- `tilde` no longer shortens a path that only starts like the home folder.
+
 ## v1.0.1 — 2026-10-14
 
 ### Added
